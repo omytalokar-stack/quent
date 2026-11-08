@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuantConsensus - Binance Market Analysis</title>
+  <meta name="description" content="Binance market analysis from validated closed-candle history with live WebSocket paper-trade valuation." />
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React 18 & ReactDOM CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel CDN for in-browser JSX parsing -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- TradingView Lightweight Charts CDN -->
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #070b12; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-[#070b12] text-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // --- MATHEMATICAL QUANTITATIVE INDICATOR ENGINE ---
+    function calcSMA(values, period) {
+      const res = new Array(values.length).fill(NaN);
+      if (values.length < period) return res;
+      let sum = 0;
+      for (let i = 0; i < period; i++) sum += values[i];
+      res[period - 1] = sum / period;
+      for (let i = period; i < values.length; i++) {
+        sum += values[i] - values[i - period];
+        res[i] = sum / period;
+      }
+      return res;
+    }
+
+    function calcEMA(values, period) {
+      const res = new Array(values.length).fill(NaN);
+      if (values.length < period) return res;
+      let sum = 0;
+      for (let i = 0; i < period; i++) sum += values[i];
+      let prev = sum / period;
+      res[period - 1] = prev;
+      const k = 2 / (period + 1);
+      for (let i = period; i < values.length; i++) {
+        prev = values[i] * k + prev * (1 - k);
+        res[i] = prev;
+      }
+      return res;
+    }
+
+    function calcRSI(closes, period = 14) {
+      const rsi = new Array(closes.length).fill(NaN);
+      if (closes.length <= period) return rsi;
+      let gainSum = 0, lossSum = 0;
+      for (let i = 1; i <= period; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff > 0) gainSum += diff; else lossSum += Math.abs(diff);
+      }
+      let avgGain = gainSum / period;
+      let avgLoss = lossSum / period;
+      let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+      rsi[period] = avgLoss === 0 ? 100 : 100 - (100 / (1 + rs));
+
+      for (let i = period + 1; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        const gain = diff > 0 ? diff : 0;
+        const loss = diff < 0 ? Math.abs(diff) : 0;
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+        rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+        rsi[i] = avgLoss === 0 ? 100 : 100 - (100 / (1 + rs));
+      }
+      return rsi;
+    }
+
+    function calcMACD(closes, fast = 12, slow = 26, sig = 9) {
+      const len = closes.length;
+      const macd = new Array(len).fill(NaN);
+      const signal = new Array(len).fill(NaN);
+      const hist = new Array(len).fill(NaN);
+      const fastEMA = calcEMA(closes, fast);
+      const slowEMA = calcEMA(closes, slow);
+
+      const valid = [];
+      for (let i = 0; i < len; i++) {
+        if (!isNaN(fastEMA[i]) && !isNaN(slowEMA[i])) {
+          const val = fastEMA[i] - slowEMA[i];
+          macd[i] = val;
+          valid.push({ i, val });
+        }
+      }
+      if (valid.length >= sig) {
+        const sigSeries = calcEMA(valid.map(v => v.val), sig);
+        for (let k = 0; k < valid.length; k++) {
+          const orig = valid[k].i;
+          if (!isNaN(sigSeries[k])) {
+            signal[orig] = sigSeries[k];
+            hist[orig] = macd[orig] - sigSeries[k];
+          }
+        }
+      }
+      return { macd, signal, histogram: hist };
+    }
+
+    function calcATR(candles, period = 14) {
+      const len = candles.length;
+      const atr = new Array(len).fill(NaN);
+      if (len < period + 1) return atr;
+      const tr = new Array(len).fill(0);
+      tr[0] = candles[0].high - candles[0].low;
+      for (let i = 1; i < len; i++) {
+        const h = candles[i].high, l = candles[i].low, pc = candles[i - 1].close;
+        tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+      }
+      let sum = 0;
+      for (let i = 0; i < period; i++) sum += tr[i];
+      let cur = sum / period;
+      atr[period - 1] = cur;
+      for (let i = period; i < len; i++) {
+        cur = (cur * (period - 1) + tr[i]) / period;
+        atr[i] = cur;
+      }
+      return atr;
+    }
+
+    function calcSupertrend(candles, period = 10, mult = 3) {
+      const len = candles.length;
+      const upper = new Array(len).fill(NaN);
+      const lower = new Array(len).fill(NaN);
+      const trend = new Array(len).fill('bull');
+      const atr = calcATR(candles, period);
+      const bu = new Array(len).fill(NaN);
+      const bl = new Array(len).fill(NaN);
+
+      for (let i = 0; i < len; i++) {
+        if (isNaN(atr[i])) continue;
+        const hl2 = (candles[i].high + candles[i].low) / 2;
+        bu[i] = hl2 + mult * atr[i];
+        bl[i] = hl2 - mult * atr[i];
+      }
+
+      let pu = NaN, pl = NaN, curTrend = 'bull';
+      for (let i = 0; i < len; i++) {
+        if (isNaN(bu[i])) continue;
+        if (isNaN(pu)) {
+          pu = bu[i]; pl = bl[i];
+          upper[i] = pu; lower[i] = pl; trend[i] = curTrend;
+          continue;
+        }
+        const pc = candles[i - 1].close;
+        let fu = (bu[i] < pu || pc > pu) ? bu[i] : pu;
+        let fl = (bl[i] > pl || pc < pl) ? bl[i] : pl;
+
+        if (curTrend === 'bull' && candles[i].close < fl) curTrend = 'bear';
+        else if (curTrend === 'bear' && candles[i].close > fu) curTrend = 'bull';
+
+        pu = fu; pl = fl;
+        upper[i] = fu; lower[i] = fl; trend[i] = curTrend;
+      }
+      return { upper, lower, trend };
+    }
+
+    function calcBollingerBands(closes, period = 20, mult = 2) {
+      const len = closes.length;
+      const upper = new Array(len).fill(NaN);
+      const middle = new Array(len).fill(NaN);
+      const lower = new Array(len).fill(NaN);
+      const percentB = new Array(len).fill(NaN);
+      const sma = calcSMA(closes, period);
+
+      for (let i = period - 1; i < len; i++) {
+        const mean = sma[i];
+        middle[i] = mean;
+        let vSum = 0;
+        for (let j = i - period + 1; j <= i; j++) {
+          const d = closes[j] - mean;
+          vSum += d * d;
+        }
+        const std = Math.sqrt(vSum / period);
+        const u = mean + mult * std;
+        const l = mean - mult * std;
+        upper[i] = u; lower[i] = l;
+        percentB[i] = (u - l === 0) ? 0.5 : (closes[i] - l) / (u - l);
+      }
+      return { upper, middle, lower, percentB };
+    }
+
+    function calcStochRSI(closes, rsiP = 14, stochP = 14, kP = 3, dP = 3) {
+      const len = closes.length;
+      const rsi = calcRSI(closes, rsiP);
+      const raw = new Array(len).fill(NaN);
+      for (let i = rsiP + stochP - 1; i < len; i++) {
+        let min = Infinity, max = -Infinity;
+        for (let j = i - stochP + 1; j <= i; j++) {
+          if (rsi[j] < min) min = rsi[j];
+          if (rsi[j] > max) max = rsi[j];
+        }
+        const d = max - min;
+        raw[i] = (d === 0) ? 50 : ((rsi[i] - min) / d) * 100;
+      }
+      const k = new Array(len).fill(NaN);
+      const d = new Array(len).fill(NaN);
+      for (let i = kP - 1; i < len; i++) {
+        const window = raw.slice(i - kP + 1, i + 1);
+        if (window.every(Number.isFinite)) k[i] = window.reduce((sum, value) => sum + value, 0) / kP;
+      }
+      for (let i = dP - 1; i < len; i++) {
+        const window = k.slice(i - dP + 1, i + 1);
+        if (window.every(Number.isFinite)) d[i] = window.reduce((sum, value) => sum + value, 0) / dP;
+      }
+      return { k, d };
+    }
+
+    function calcADX(candles, period = 14) {
+      const len = candles.length;
+      const adx = new Array(len).fill(NaN);
+      const plusDI = new Array(len).fill(NaN);
+      const minusDI = new Array(len).fill(NaN);
+      if (len < period * 2) return { adx, plusDI, minusDI };
+
+      const tr = new Array(len).fill(0);
+      const plusDM = new Array(len).fill(0);
+      const minusDM = new Array(len).fill(0);
+      for (let i = 1; i < len; i++) {
+        tr[i] = Math.max(candles[i].high - candles[i].low, Math.abs(candles[i].high - candles[i - 1].close), Math.abs(candles[i].low - candles[i - 1].close));
+        const up = candles[i].high - candles[i - 1].high;
+        const down = candles[i - 1].low - candles[i].low;
+        plusDM[i] = (up > down && up > 0) ? up : 0;
+        minusDM[i] = (down > up && down > 0) ? down : 0;
+      }
+
+      let trS = 0, pDMS = 0, mDMS = 0;
+      for (let i = 1; i <= period; i++) {
+        trS += tr[i]; pDMS += plusDM[i]; mDMS += minusDM[i];
+      }
+      const dx = new Array(len).fill(NaN);
+      plusDI[period] = trS === 0 ? 0 : (pDMS / trS) * 100;
+      minusDI[period] = trS === 0 ? 0 : (mDMS / trS) * 100;
+      let dSum = plusDI[period] + minusDI[period];
+      dx[period] = dSum === 0 ? 0 : (Math.abs(plusDI[period] - minusDI[period]) / dSum) * 100;
+
+      for (let i = period + 1; i < len; i++) {
+        trS = trS - trS / period + tr[i];
+        pDMS = pDMS - pDMS / period + plusDM[i];
+        mDMS = mDMS - mDMS / period + minusDM[i];
+        plusDI[i] = trS === 0 ? 0 : (pDMS / trS) * 100;
+        minusDI[i] = trS === 0 ? 0 : (mDMS / trS) * 100;
+        dSum = plusDI[i] + minusDI[i];
+        dx[i] = dSum === 0 ? 0 : (Math.abs(plusDI[i] - minusDI[i]) / dSum) * 100;
+      }
+      let dxS = 0;
+      for (let i = period; i < period * 2; i++) dxS += dx[i] || 0;
+      let curADX = dxS / period;
+      adx[period * 2 - 1] = curADX;
+      for (let i = period * 2; i < len; i++) {
+        curADX = (curADX * (period - 1) + (dx[i] || 0)) / period;
+        adx[i] = curADX;
+      }
+      return { adx, plusDI, minusDI };
+    }
+
+    function calcOBV(candles, period = 20) {
+      const len = candles.length;
+      const obv = new Array(len).fill(0);
+      if (len === 0) return { obv: [], obvSma: [] };
+      obv[0] = candles[0].volume;
+      for (let i = 1; i < len; i++) {
+        if (candles[i].close > candles[i - 1].close) obv[i] = obv[i - 1] + candles[i].volume;
+        else if (candles[i].close < candles[i - 1].close) obv[i] = obv[i - 1] - candles[i].volume;
+        else obv[i] = obv[i - 1];
+      }
+      const obvSma = calcSMA(obv, period);
+      return { obv, obvSma };
+    }
+
+    function logIndicatorAudit(symbol, candles, rsi, ema200, macd, supertrend) {
+      const closes = candles.map(c => c.close);
+      const ema12 = calcEMA(closes, 12);
+      const ema26 = calcEMA(closes, 26);
+      const atr10 = calcATR(candles, 10);
+      const rows = candles.map((candle, i) => {
+        const hl2 = (candle.high + candle.low) / 2;
+        return {
+          candle: i + 1,
+          time: candle.time,
+          close: candle.close,
+          wilderRSI14: rsi[i],
+          rsiFormula: i < 14 ? `Warm-up ${i}/14` : 'Wilder average gain/loss; RSI=100-100/(1+RS)',
+          ema200: ema200[i],
+          ema200Formula: i < 199 ? `SMA seed ${i + 1}/200` : i === 199 ? 'SMA(200 closes)' : `close*2/201 + prevEMA*199/201`,
+          macd: macd.macd[i],
+          macdSignal: macd.signal[i],
+          macdHistogram: macd.histogram[i],
+          macdFormula: `EMA12(${ema12[i]}) - EMA26(${ema26[i]}); signal EMA9; histogram=MACD-signal`,
+          supertrend: supertrend.trend[i],
+          supertrendFormula: Number.isFinite(atr10[i])
+            ? `HL2(${hl2}) +/- 3*ATR10(${atr10[i]}); bands ${supertrend.lower[i]} / ${supertrend.upper[i]}`
+            : `ATR10 warm-up; HL2=${hl2}`,
+        };
+      });
+      console.groupCollapsed(`[INDICATOR CALCULATION AUDIT] ${symbol} (${candles.length} closed candles)`);
+      console.log('Per-candle raw formula steps:', rows);
+      console.table(rows);
+      console.groupEnd();
+    }
+
+    function evaluateConsensus(candles, symbol) {
+      if (candles.length !== 500 || candles.some(c => c.isClosed !== true)) return null;
+      const closes = candles.map(c => c.close);
+      const last = candles[candles.length - 1];
+      const price = last.close;
+      const lastIdx = candles.length - 1;
+
+      const ema20 = calcEMA(closes, 20)[lastIdx];
+      const ema50 = calcEMA(closes, 50)[lastIdx];
+      const ema200 = calcEMA(closes, 200)[lastIdx];
+      const st = calcSupertrend(candles, 10, 3);
+      const rsi = calcRSI(closes, 14)[lastIdx];
+      const macd = calcMACD(closes, 12, 26, 9);
+      const bb = calcBollingerBands(closes, 20, 2);
+      const stoch = calcStochRSI(closes, 14, 14, 3, 3);
+      const adxObj = calcADX(candles, 14);
+      const atr = calcATR(candles, 14)[lastIdx];
+      const obv = calcOBV(candles, 20);
+      if (![price, ema20, ema50, ema200, st.upper[lastIdx], st.lower[lastIdx], rsi, macd.macd[lastIdx], macd.signal[lastIdx], macd.histogram[lastIdx], bb.percentB[lastIdx], stoch.k[lastIdx], stoch.d[lastIdx], adxObj.adx[lastIdx], adxObj.plusDI[lastIdx], adxObj.minusDI[lastIdx], atr, obv.obv[lastIdx], obv.obvSma[lastIdx]].every(Number.isFinite) || atr <= 0) return null;
+      logIndicatorAudit(symbol, candles, calcRSI(closes, 14), calcEMA(closes, 200), macd, st);
+
+      const items = [];
+      // 1. 200 EMA
+      const is200Bull = !isNaN(ema200) && price > ema200;
+      const is200Bear = !isNaN(ema200) && price < ema200;
+      items.push({ name: '200 EMA Macro', status: is200Bull ? 'BULLISH' : is200Bear ? 'BEARISH' : 'NEUTRAL', val: `$${ema200?.toFixed(2) || 'N/A'}` });
+
+      // 2. EMA Ribbon
+      const isRibbonBull = ema20 > ema50;
+      const isRibbonBear = ema20 < ema50;
+      items.push({ name: 'EMA Ribbon (20/50)', status: isRibbonBull ? 'BULLISH' : isRibbonBear ? 'BEARISH' : 'NEUTRAL', val: `${ema20?.toFixed(2)} / ${ema50?.toFixed(2)}` });
+
+      // 3. Supertrend
+      const isStBull = st.trend[lastIdx] === 'bull';
+      items.push({ name: 'Supertrend (10, 3)', status: isStBull ? 'BULLISH' : 'BEARISH', val: isStBull ? `Sup $${st.lower[lastIdx]?.toFixed(2)}` : `Res $${st.upper[lastIdx]?.toFixed(2)}` });
+
+      // 4. RSI
+      let rsiStatus = 'NEUTRAL';
+      if (rsi >= 50 && rsi < 70) rsiStatus = 'BULLISH';
+      else if (rsi <= 50 && rsi > 30) rsiStatus = 'BEARISH';
+      items.push({ name: 'RSI (14) Wilder', status: rsiStatus, val: rsi?.toFixed(1) || 'N/A' });
+
+      // 5. MACD
+      const mHist = macd.histogram[lastIdx];
+      items.push({ name: 'MACD (12, 26, 9)', status: mHist > 0 ? 'BULLISH' : mHist < 0 ? 'BEARISH' : 'NEUTRAL', val: `Hist: ${mHist?.toFixed(2)}` });
+
+      // 6. Stoch RSI
+      const sK = stoch.k[lastIdx], sD = stoch.d[lastIdx];
+      items.push({ name: 'Stochastic RSI', status: sK > sD && sK < 80 ? 'BULLISH' : sK < sD && sK > 20 ? 'BEARISH' : 'NEUTRAL', val: `K:${sK?.toFixed(1)} D:${sD?.toFixed(1)}` });
+
+      // 7. Bollinger Bands
+      const pctB = bb.percentB[lastIdx];
+      items.push({ name: 'Bollinger Bands', status: pctB > 0.5 ? 'BULLISH' : 'BEARISH', val: `%B: ${pctB?.toFixed(2)}` });
+
+      // 8. ADX
+      const curADX = adxObj.adx[lastIdx], pDI = adxObj.plusDI[lastIdx], mDI = adxObj.minusDI[lastIdx];
+      const isAdxBull = curADX >= 20 && pDI > mDI;
+      const isAdxBear = curADX >= 20 && mDI > pDI;
+      items.push({ name: 'ADX Trend Strength', status: isAdxBull ? 'BULLISH' : isAdxBear ? 'BEARISH' : 'NEUTRAL', val: `ADX: ${curADX?.toFixed(1)}` });
+
+      // 9. OBV
+      const curObv = obv.obv[lastIdx], obvS = obv.obvSma[lastIdx];
+      items.push({ name: 'OBV 20-SMA', status: curObv > obvS ? 'BULLISH' : 'BEARISH', val: `${(curObv/1e6).toFixed(2)}M` });
+
+      // 10. ATR
+      const body = last.close - last.open;
+      items.push({ name: 'ATR Volatility', status: body > 0 ? 'BULLISH' : 'BEARISH', val: `$${atr?.toFixed(2)}` });
+
+      const bullScore = items.filter(i => i.status === 'BULLISH').length;
+      const bearScore = items.filter(i => i.status === 'BEARISH').length;
+
+      let signal = 'NEUTRAL';
+      let setup = null;
+      const validAtr = atr;
+
+      if (is200Bull && isRibbonBull && isAdxBull && bullScore >= 7) {
+        signal = 'CONFIRMED_BUY';
+        setup = {
+          side: 'BUY',
+          entry: price,
+          atr: validAtr,
+          sl: price - 1.5 * validAtr,
+          tp1: price + 1.5 * validAtr,
+          tp2: price + 3.0 * validAtr,
+        };
+      } else if (is200Bear && isRibbonBear && isAdxBear && bearScore >= 7) {
+        signal = 'CONFIRMED_SELL';
+        setup = {
+          side: 'SELL',
+          entry: price,
+          atr: validAtr,
+          sl: price + 1.5 * validAtr,
+          tp1: price - 1.5 * validAtr,
+          tp2: price - 3.0 * validAtr,
+        };
+      }
+
+      return { bullScore, bearScore, signal, items, setup, price, rsi, ema200 };
+    }
+
+    // --- MAIN REACT APPLICATION COMPONENT ---
+    function App() {
+      const [symbol, setSymbol] = useState('BTCUSDT');
+      const [interval, setIntervalVal] = useState('15m');
+      const [candles, setCandles] = useState([]);
+      const [consensus, setConsensus] = useState(null);
+      const [currentPrice, setCurrentPrice] = useState(0);
+      const [wsStatus, setWsStatus] = useState('CONNECTING');
+      const [dataError, setDataError] = useState(null);
+      const [isLoading, setIsLoading] = useState(true);
+      const [isFeedHalted, setIsFeedHalted] = useState(true);
+      const [paperBalance, setPaperBalance] = useState(10000);
+      const [openPos, setOpenPos] = useState(null);
+      const [history, setHistory] = useState([]);
+      const [customPair, setCustomPair] = useState('');
+
+      const chartRef = useRef(null);
+      const candleSeriesRef = useRef(null);
+      const wsRef = useRef(null);
+      const openPosRef = useRef(null);
+      const lastTickRef = useRef(Date.now());
+      const latestTradePriceRef = useRef(0);
+      const latestPricesRef = useRef(new Map());
+      const loadRequestRef = useRef(0);
+      openPosRef.current = openPos;
+
+      const coins = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA', 'AVAX', 'SUI', 'NEAR', 'PEPE'];
+      const intervals = ['5m', '15m', '1h', '4h', '1d'];
+
+      // Fetch only validated closed candles from Binance REST endpoints
+      const loadData = useCallback(async (sym, tf) => {
+        const requestId = ++loadRequestRef.current;
+        setIsLoading(true);
+        setDataError(null);
+        setIsFeedHalted(true);
+        setCandles([]);
+        setConsensus(null);
+        setCurrentPrice(0);
+        latestTradePriceRef.current = 0;
+        lastTickRef.current = Date.now();
+        const endpoints = [
+          `https://data-api.binance.vision/api/v3/klines?symbol=${sym}&interval=${tf}&limit=501`,
+          `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${tf}&limit=501`,
+          `https://api1.binance.com/api/v3/klines?symbol=${sym}&interval=${tf}&limit=501`,
+          `https://api3.binance.com/api/v3/klines?symbol=${sym}&interval=${tf}&limit=501`
+        ];
+        for (const url of endpoints) {
+          try {
+            const res = await fetch(url);
+            if (requestId !== loadRequestRef.current) return;
+            if (!res.ok) {
+              console.warn(`[Binance REST API] ${new URL(url).hostname} returned HTTP ${res.status} for ${sym}`);
+              continue;
+            }
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              const parsed = data.flatMap(d => {
+                const time = Number(d?.[0]);
+                const closeTime = Number(d?.[6]);
+                const open = Number(d?.[1]);
+                const high = Number(d?.[2]);
+                const low = Number(d?.[3]);
+                const close = Number(d?.[4]);
+                const volume = Number(d?.[5]);
+                const valid = [time, closeTime, open, high, low, close, volume].every(Number.isFinite) &&
+                  time > 0 && closeTime > time && low > 0 &&
+                  high >= Math.max(open, close, low) &&
+                  low <= Math.min(open, close, high) && volume >= 0;
+                if (!valid || closeTime >= Date.now()) return [];
+                return [{
+                  time: Math.floor(time / 1000),
+                  open, high, low, close, volume, isClosed: true
+                }];
+              }).slice(-500);
+              if (parsed.length !== 500) {
+                console.warn(`[Binance REST API] ${new URL(url).hostname} returned only ${parsed.length}/500 valid closed candles for ${sym}`);
+                continue;
+              }
+              const cons = evaluateConsensus(parsed, sym);
+              if (!cons) {
+                setDataError(`DATA FETCH ERROR: Unable to calculate indicators for ${sym}`);
+                setIsLoading(false);
+                return;
+              }
+              setCandles(parsed);
+              const lastC = parsed[parsed.length - 1];
+              setCurrentPrice(lastC.close);
+              setConsensus(cons);
+              if (candleSeriesRef.current) {
+                candleSeriesRef.current.setData(parsed);
+              }
+              setIsLoading(false);
+              return;
+            }
+          } catch (error) {
+            console.error(`[Binance REST API] Request failed for ${sym} at ${new URL(url).hostname}:`, error);
+          }
+        }
+        if (requestId !== loadRequestRef.current) return;
+        setDataError(`DATA FETCH ERROR: Unable to load 500 valid closed Binance candles for ${sym}`);
+        setIsLoading(false);
+      }, []);
+
+      useEffect(() => {
+        loadData(symbol, interval);
+      }, [symbol, interval, loadData]);
+
+      useEffect(() => {
+        if (wsRef.current) wsRef.current.close();
+        setWsStatus('CONNECTING');
+        setIsFeedHalted(true);
+        const tradeSymbols = [...new Set([symbol, openPos?.symbol].filter(Boolean))];
+        const streams = [
+          ...tradeSymbols.map(sym => `${sym.toLowerCase()}@trade`),
+          `${symbol.toLowerCase()}@kline_${interval}`,
+        ].join('/');
+        const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+        wsRef.current = ws;
+
+        ws.onopen = () => setWsStatus('CONNECTED');
+        ws.onerror = () => {
+          setWsStatus('ERROR');
+          setIsFeedHalted(true);
+        };
+        ws.onclose = () => {
+          setWsStatus('DISCONNECTED');
+          setIsFeedHalted(true);
+        };
+        ws.onmessage = (evt) => {
+          try {
+            const payload = JSON.parse(evt.data);
+            const msg = payload?.data ?? payload;
+            if (msg.e === 'trade') {
+              const price = Number(msg.p);
+              const tickSymbol = String(msg.s || '').toUpperCase();
+              if (!Number.isFinite(price) || price <= 0) {
+                console.error(`[Binance WebSocket] Invalid trade tick for ${tickSymbol}:`, msg.p);
+                return;
+              }
+              const receivedAt = Date.now();
+              latestPricesRef.current.set(tickSymbol, { price, time: receivedAt });
+              if (tickSymbol === symbol) {
+                latestTradePriceRef.current = price;
+                lastTickRef.current = receivedAt;
+                setCurrentPrice(price);
+                setIsFeedHalted(false);
+              }
+              const pos = openPosRef.current;
+              if (pos && pos.symbol === tickSymbol) {
+                const isLong = pos.side === 'BUY';
+                const pnl = isLong ? (price - pos.entry) * pos.size : (pos.entry - price) * pos.size;
+                const pnlPct = isLong ? ((price - pos.entry) / pos.entry) * 100 : ((pos.entry - price) / pos.entry) * 100;
+                const stopHit = isLong ? price <= pos.sl : price >= pos.sl;
+                const targetHit = isLong ? price >= pos.tp2 : price <= pos.tp2;
+                if (stopHit || targetHit) {
+                  const reason = stopHit ? 'Stop Loss Hit' : 'Take Profit Hit';
+                  setHistory(prev => [{ ...pos, exit: price, pnl, reason, time: Date.now() }, ...prev]);
+                  setPaperBalance(prev => prev + pos.margin + pnl);
+                  openPosRef.current = null;
+                  setOpenPos(null);
+                } else {
+                  openPosRef.current = { ...pos, curPrice: price, pnl, pnlPct };
+                  setOpenPos(openPosRef.current);
+                }
+              }
+              return;
+            }
+
+            if (msg.k && msg.s?.toUpperCase() === symbol) {
+              const k = msg.k;
+              const time = Number(k.t);
+              const open = Number(k.o);
+              const high = Number(k.h);
+              const low = Number(k.l);
+              const close = Number(k.c);
+              const volume = Number(k.v);
+              if (![time, open, high, low, close, volume].every(Number.isFinite) ||
+                  time <= 0 || low <= 0 || high < Math.max(open, close, low) ||
+                  low > Math.min(open, close, high) || close <= 0 || volume < 0) {
+                console.error(`[Binance WebSocket] Invalid kline for ${symbol}:`, k);
+                return;
+              }
+              if (candleSeriesRef.current) {
+                candleSeriesRef.current.update({
+                  time: Math.floor(time / 1000),
+                  open,
+                  high,
+                  low,
+                  close,
+                });
+              }
+
+              if (k.x === true) {
+                setCandles(prev => {
+                  const candle = { time: Math.floor(time / 1000), open, high, low, close, volume, isClosed: true };
+                  const updated = [...prev];
+                  const last = updated[updated.length - 1];
+                  if (last?.time === candle.time) updated[updated.length - 1] = candle;
+                  else updated.push(candle);
+                  if (updated.length > 500) updated.shift();
+                  if (updated.length === 500) {
+                    const cons = evaluateConsensus(updated, symbol);
+                    setConsensus(cons);
+                    setDataError(cons ? null : `DATA FETCH ERROR: Invalid indicators for ${symbol}`);
+                  } else {
+                    setConsensus(null);
+                  }
+                  return updated;
+                });
+              }
+            }
+          } catch (error) {
+            console.error(`[Binance WebSocket] Failed to parse message for ${symbol}:`, error);
+          }
+        };
+
+        return () => ws.close();
+      }, [symbol, interval, openPos?.symbol]);
+
+      useEffect(() => {
+        const watchdog = setInterval(() => {
+          const feedStale = wsStatus !== 'CONNECTED' ||
+            latestTradePriceRef.current <= 0 ||
+            Date.now() - lastTickRef.current > 15000;
+          setIsFeedHalted(feedStale);
+        }, 1000);
+        return () => clearInterval(watchdog);
+      }, [wsStatus]);
+
+      // Initialize chart once
+      useEffect(() => {
+        const container = document.getElementById('chart-container');
+        if (!container) return;
+        container.innerHTML = '';
+        const chart = LightweightCharts.createChart(container, {
+          layout: { background: { color: '#090d16' }, textColor: '#94a3b8' },
+          grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
+          timeScale: { timeVisible: true, secondsVisible: false }
+        });
+        chartRef.current = chart;
+        const candleSeries = chart.addCandlestickSeries({
+          upColor: '#10b981', downColor: '#f43f5e',
+          wickUpColor: '#10b981', wickDownColor: '#f43f5e'
+        });
+        candleSeriesRef.current = candleSeries;
+
+        const handleResize = () => chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+        window.addEventListener('resize', handleResize);
+        handleResize();
+
+        return () => {
+          window.removeEventListener('resize', handleResize);
+          chart.remove();
+        };
+      }, []);
+
+      const handleExecuteTrade = (setup) => {
+        const entry = latestTradePriceRef.current;
+        if (isFeedHalted || wsStatus !== 'CONNECTED' || candles.length !== 500 ||
+            !Number.isFinite(entry) || entry <= 0 || !Number.isFinite(setup.atr) || setup.atr <= 0) return;
+        if (openPos) return;
+        const margin = Math.min(paperBalance * 0.25, 2500);
+        const size = margin / entry;
+        const isLong = setup.side === 'BUY';
+        const newPosition = {
+          symbol, side: setup.side, entry, curPrice: entry,
+          sl: entry + (isLong ? -1.5 : 1.5) * setup.atr,
+          tp1: entry + (isLong ? 1.5 : -1.5) * setup.atr,
+          tp2: entry + (isLong ? 3 : -3) * setup.atr,
+          margin, size,
+          pnl: (entry - entry) * size,
+          pnlPct: ((entry - entry) / entry) * 100
+        };
+        openPosRef.current = newPosition;
+        setOpenPos(newPosition);
+        setPaperBalance(prev => prev - margin);
+      };
+
+      const handleClosePos = () => {
+        if (!openPos) return;
+        const market = latestPricesRef.current.get(openPos.symbol);
+        if (isFeedHalted || wsStatus !== 'CONNECTED' || !market || Date.now() - market.time > 15000) return;
+        const pnl = openPos.side === 'BUY'
+          ? (market.price - openPos.entry) * openPos.size
+          : (openPos.entry - market.price) * openPos.size;
+        setHistory(prev => [{ ...openPos, exit: market.price, pnl, reason: 'Manual Close', time: Date.now() }, ...prev]);
+        setPaperBalance(prev => prev + openPos.margin + pnl);
+        openPosRef.current = null;
+        setOpenPos(null);
+      };
+
+      const hasValidCandleSet = candles.length === 500 && candles.every(c => c.isClosed === true);
+      const canBookTrade = hasValidCandleSet && !isFeedHalted && wsStatus === 'CONNECTED' && currentPrice > 0;
+      const activeTradeSetup = consensus?.setup && currentPrice > 0
+        ? {
+            ...consensus.setup,
+            entry: currentPrice,
+            sl: currentPrice + (consensus.setup.side === 'BUY' ? -1.5 : 1.5) * consensus.setup.atr,
+            tp1: currentPrice + (consensus.setup.side === 'BUY' ? 1.5 : -1.5) * consensus.setup.atr,
+            tp2: currentPrice + (consensus.setup.side === 'BUY' ? 3 : -3) * consensus.setup.atr,
+          }
+        : null;
+
+      return (
+        <div className="min-h-screen flex flex-col font-sans">
+          {/* Header */}
+          <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-30">
+            <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="font-bold text-lg text-emerald-400 font-mono tracking-wider">
+                  QUANT<span className="text-white">CONSENSUS</span>
+                </span>
+                <span className="text-xs bg-slate-800 border border-slate-700 px-2 py-0.5 rounded font-mono text-amber-400">
+                  7/10 INST. ENGINE
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded font-mono border ${wsStatus === 'CONNECTED' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'}`}>
+                  WS: {wsStatus}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="text-right font-mono">
+                  <div className="text-xs text-slate-400">{symbol} • {interval}</div>
+                  <div className="text-xl font-bold text-white">${currentPrice.toFixed(2)}</div>
+                </div>
+                <div className="bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg font-mono text-xs">
+                  <div className="text-[10px] text-slate-400">PAPER BALANCE</div>
+                  <div className="font-bold text-emerald-400">${paperBalance.toFixed(2)} virtual</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Selectors */}
+            <div className="max-w-7xl mx-auto mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+              <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                {coins.map(c => (
+                  <button key={c} onClick={() => setSymbol(c + 'USDT')}
+                    className={`px-2.5 py-1 rounded ${symbol === c + 'USDT' ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Custom pair"
+                  value={customPair}
+                  onChange={e => setCustomPair(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 px-2 py-1 rounded text-white text-xs uppercase w-28"
+                />
+                <button
+                  onClick={() => { if (customPair) { setSymbol(customPair.toUpperCase().endsWith('USDT') ? customPair.toUpperCase() : customPair.toUpperCase() + 'USDT'); setCustomPair(''); } }}
+                  className="bg-cyan-600 hover:bg-cyan-500 px-2 py-1 rounded text-white">
+                  Load
+                </button>
+                <div className="flex items-center gap-1 bg-slate-800 p-0.5 rounded">
+                  {intervals.map(tf => (
+                    <button key={tf} onClick={() => setIntervalVal(tf)}
+                      className={`px-2 py-0.5 rounded ${interval === tf ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}>
+                      {tf}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* Body */}
+          <main className="max-w-7xl mx-auto w-full p-4 flex flex-col gap-5 flex-1">
+            {isFeedHalted && (
+              <div className="p-3 rounded-xl bg-rose-950 border border-rose-500 text-rose-200 font-mono text-xs font-bold">
+                FEED DISCONNECTED - ANALYSIS HALTED TO PREVENT FALSE SIGNALS
+              </div>
+            )}
+            {dataError && (
+              <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500 text-rose-200 font-mono text-xs">
+                {dataError}
+              </div>
+            )}
+            {isLoading && (
+              <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-mono text-sm animate-pulse">
+                Loading and validating 500 closed Binance candles...
+              </div>
+            )}
+            {/* Chart */}
+            <div className="bg-[#090d16] border border-slate-800 rounded-xl overflow-hidden h-[480px]" id="chart-container"></div>
+
+            {/* Consensus Radar */}
+            {consensus && (
+              <div className={`p-5 rounded-xl border ${consensus.signal === 'CONFIRMED_BUY' ? 'bg-emerald-950/30 border-emerald-500' : consensus.signal === 'CONFIRMED_SELL' ? 'bg-rose-950/30 border-rose-500' : 'bg-slate-900 border-slate-800'}`}>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <span className={`px-2.5 py-1 rounded text-xs font-bold font-mono ${consensus.signal === 'CONFIRMED_BUY' ? 'bg-emerald-500 text-slate-950' : consensus.signal === 'CONFIRMED_SELL' ? 'bg-rose-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                      {consensus.signal === 'CONFIRMED_BUY' ? 'CONFIRMED BUY / LONG' : consensus.signal === 'CONFIRMED_SELL' ? 'CONFIRMED SELL / SHORT' : 'NEUTRAL CHOP FILTER'}
+                    </span>
+                    <h3 className="text-lg font-bold text-white mt-1">
+                      Consensus: {consensus.bullScore}/10 Bullish, {consensus.bearScore}/10 Bearish (Target: 7/10)
+                    </h3>
+                    <p className="text-xs font-mono text-slate-300 mt-2">
+                      RSI: {consensus.rsi.toFixed(2)} | 200 EMA: ${consensus.ema200.toFixed(2)} | Price: ${currentPrice.toFixed(2)}
+                    </p>
+                  </div>
+
+                  {consensus.setup && !openPos && (
+                    <button
+                      disabled={!canBookTrade}
+                      onClick={() => handleExecuteTrade(activeTradeSetup)}
+                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold font-mono text-xs uppercase cursor-pointer disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed">
+                      {canBookTrade ? `Book ${activeTradeSetup.side} (SL: $${activeTradeSetup.sl.toFixed(2)} | TP: $${activeTradeSetup.tp2.toFixed(2)})` : 'Trade Disabled - Waiting for Valid Feed'}
+                    </button>
+                  )}
+                </div>
+
+                {/* 10 Indicators Table */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-4 pt-4 border-t border-slate-800 text-xs font-mono">
+                  {consensus.items.map(item => (
+                    <div key={item.name} className="p-2.5 bg-slate-950 rounded border border-slate-800/80">
+                      <div className="text-slate-400 text-[10px]">{item.name}</div>
+                      <div className="font-bold text-white mt-0.5">{item.val}</div>
+                      <div className={`text-[10px] font-bold mt-1 ${item.status === 'BULLISH' ? 'text-emerald-400' : item.status === 'BEARISH' ? 'text-rose-400' : 'text-slate-500'}`}>
+                        {item.status}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Paper Trading */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <h4 className="font-bold text-sm text-white font-mono uppercase mb-3">Active Paper Trade & Risk Station</h4>
+              {openPos ? (
+                <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
+                  <div>
+                    <span className={`px-2 py-0.5 rounded font-bold mr-2 ${openPos.side === 'BUY' ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-white'}`}>{openPos.side}</span>
+                    <span className="font-bold text-white">{openPos.symbol}</span>
+                    <span className="text-slate-400 ml-2">Entry: ${openPos.entry.toFixed(2)} | Current: ${openPos.curPrice.toFixed(2)}</span>
+                  </div>
+                  <div className={`font-bold text-sm ${openPos.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {openPos.pnl >= 0 ? '+' : ''}${openPos.pnl.toFixed(2)} ({openPos.pnlPct.toFixed(2)}%)
+                  </div>
+                  <button onClick={handleClosePos} disabled={isFeedHalted || wsStatus !== 'CONNECTED'} className="px-3 py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded hover:bg-rose-500/30 disabled:text-slate-500 disabled:cursor-not-allowed">
+                    {isFeedHalted || wsStatus !== 'CONNECTED' ? 'Close Disabled - Feed Stale' : 'Close Position'}
+                  </button>
+                </div>
+              ) : (
+                <div className="text-slate-500 text-xs font-mono">No active position. Wait for institutional 7/10 consensus.</div>
+              )}
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

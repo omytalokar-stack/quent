@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "QuantConsensus Backend",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"backend"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}
