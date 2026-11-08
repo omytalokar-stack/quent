@@ -1,6 +1,6 @@
 {
   "name": "QuantConsensus - Institutional Crypto Quantitative Terminal",
-  "description": "Zero-backend institutional 7/10 technical indicator consensus engine and real-time Binance trading terminal with non-repainting mathematical algorithms, dynamic Lightweight Charts, and paper trading.",
+  "description": "QuantConsensus analyzes Binance markets with a closed-candle technical consensus, a live multi-coin screener, and a persistent paper-trading backend.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="background" cx="50%" cy="43%" r="74%">
+      <stop offset="0" stop-color="#181c3b"/>
+      <stop offset=".52" stop-color="#0d1022"/>
+      <stop offset="1" stop-color="#070811"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#background)"/>
+  <svg x="82" y="82" width="348" height="348" viewBox="0 0 512 512" overflow="visible">
+    <defs>
+      <radialGradient id="glass" cx="40%" cy="34%" r="72%">
+        <stop offset="0" stop-color="#1b2342"/>
+        <stop offset=".72" stop-color="#101427"/>
+        <stop offset="1" stop-color="#0b0e1b"/>
+      </radialGradient>
+      <linearGradient id="eye" x1="85" y1="170" x2="423" y2="355" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#a78bfa"/>
+        <stop offset=".48" stop-color="#55e8ff"/>
+        <stop offset="1" stop-color="#a78bfa"/>
+      </linearGradient>
+      <linearGradient id="q" x1="180" y1="159" x2="338" y2="352" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#adf5ff"/>
+        <stop offset=".48" stop-color="#48d9ff"/>
+        <stop offset="1" stop-color="#b58aff"/>
+      </linearGradient>
+      <linearGradient id="candleUp" x1="0" y1="284" x2="0" y2="346" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#a5f3fc"/>
+        <stop offset="1" stop-color="#24c8f4"/>
+      </linearGradient>
+      <linearGradient id="candleDown" x1="0" y1="264" x2="0" y2="326" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#e9b5ff"/>
+        <stop offset="1" stop-color="#a855f7"/>
+      </linearGradient>
+      <filter id="softGlow" x="35" y="106" width="442" height="300" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+        <feGaussianBlur stdDeviation="11"/>
+      </filter>
+      <filter id="brightGlow" x="145" y="124" width="222" height="272" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+        <feGaussianBlur stdDeviation="7"/>
+      </filter>
+      <filter id="dotGlow" x="36" y="36" width="440" height="440" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+        <feGaussianBlur stdDeviation="4"/>
+      </filter>
+      <clipPath id="eyeClip">
+        <path d="M75 256c47-67 107-101 181-101s134 34 181 101c-47 67-107 101-181 101S122 323 75 256Z"/>
+      </clipPath>
+    </defs>
+    <rect width="512" height="512" rx="118" fill="url(#background)"/>
+    <rect x="1" y="1" width="510" height="510" rx="117" stroke="#b5d4ff" stroke-opacity=".09" stroke-width="2"/>
+    <circle cx="256" cy="256" r="205" fill="#12172d" fill-opacity=".52" stroke="#8b9bcf" stroke-opacity=".13" stroke-width="2"/>
+    <circle cx="256" cy="256" r="191" stroke="#8b9bcf" stroke-opacity=".1"/>
+    <circle cx="256" cy="256" r="176" stroke="#82eaff" stroke-opacity=".12" stroke-width="2" stroke-dasharray="2 13"/>
+    <circle cx="256" cy="256" r="164" stroke="#a78bfa" stroke-opacity=".19" stroke-width="2" stroke-dasharray="35 17 4 17">
+      <animateTransform attributeName="transform" type="rotate" from="0 256 256" to="360 256 256" dur="48s" repeatCount="indefinite"/>
+    </circle>
+    <g fill="#9ceeff" filter="url(#dotGlow)" opacity=".8">
+      <circle cx="256" cy="51" r="5"/><circle cx="461" cy="256" r="5"/>
+      <circle cx="256" cy="461" r="5"/><circle cx="51" cy="256" r="5"/>
+    </g>
+    <g fill="#c4b5fd">
+      <circle cx="256" cy="51" r="2.5"/><circle cx="461" cy="256" r="2.5"/>
+      <circle cx="256" cy="461" r="2.5"/><circle cx="51" cy="256" r="2.5"/>
+    </g>
+    <path d="M75 256c47-67 107-101 181-101s134 34 181 101c-47 67-107 101-181 101S122 323 75 256Z" stroke="url(#eye)" stroke-opacity=".75" stroke-width="22" filter="url(#softGlow)"/>
+    <path d="M75 256c47-67 107-101 181-101s134 34 181 101c-47 67-107 101-181 101S122 323 75 256Z" fill="url(#glass)" stroke="url(#eye)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M111 256c39-47 87-70 145-70s106 23 145 70" stroke="#e0fbff" stroke-opacity=".21" stroke-width="3" stroke-linecap="round"/>
+    <path d="M128 322c36 22 79 33 128 33s92-11 128-33" stroke="#bd9aff" stroke-opacity=".33" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="256" cy="256" r="89" fill="#0b1020" stroke="#55ddff" stroke-opacity=".15" stroke-width="2"/>
+    <circle cx="256" cy="256" r="77" stroke="#6deaff" stroke-opacity=".44" stroke-width="2" stroke-dasharray="1 9" stroke-linecap="round">
+      <animate attributeName="stroke-opacity" values=".28;.8;.28" dur="3.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="256" cy="256" r="66" stroke="url(#q)" stroke-width="13"/>
+    <circle cx="256" cy="256" r="66" stroke="#d8fbff" stroke-opacity=".6" stroke-width="2">
+      <animate attributeName="stroke-opacity" values=".18;.72;.18" dur="2.8s" repeatCount="indefinite"/>
+    </circle>
+    <path d="m291 291 38 38" stroke="url(#q)" stroke-width="15" stroke-linecap="round"/>
+    <path d="m291 291 38 38" stroke="#e4fbff" stroke-opacity=".7" stroke-width="2" stroke-linecap="round"/>
+    <g filter="url(#brightGlow)" opacity=".75">
+      <path d="M210 310v-28h14v28h-14Zm31 0v-48h14v48h-14Zm31 0v-36h14v36h-14Z" fill="#62e7ff"/>
+    </g>
+    <g clip-path="url(#eyeClip)">
+      <path d="M210 318v-47m7-12v13m-7 0h14v26h-14v20m31-3v-64m7-15v25m-7 0h14v33h-14v21m31-4v-44m7-16v24m-7 0h14v27h-14v19" stroke="#07111c" stroke-opacity=".9" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M210 310v-28h14v28h-14Zm31 0v-48h14v48h-14Zm31 0v-36h14v36h-14Z" fill="url(#candleUp)" stroke="#d7fbff" stroke-opacity=".8" stroke-width="2"/>
+      <path d="M302 310v-19h14v19h-14Zm31 0v-39h14v39h-14Z" fill="url(#candleDown)" stroke="#f4dcff" stroke-opacity=".76" stroke-width="2"/>
+      <path d="M314 283v47m24-67v14m0 39v14" stroke="#e7c4ff" stroke-width="3" stroke-linecap="round"/>
+      <path d="M193 327c25-25 46-17 63-33s33-9 49-20 24-19 42-16" stroke="#c1fbff" stroke-opacity=".85" stroke-width="2" stroke-dasharray="3 7" stroke-linecap="round"/>
+    </g>
+    <circle cx="256" cy="256" r="100" stroke="#5ce5ff" stroke-opacity=".48" stroke-width="2">
+      <animate attributeName="r" values="96;103;96" dur="3.6s" repeatCount="indefinite"/>
+      <animate attributeName="stroke-opacity" values=".15;.55;.15" dur="3.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="256" cy="256" r="112" stroke="#bb91ff" stroke-opacity=".18" stroke-width="1" stroke-dasharray="3 11">
+      <animateTransform attributeName="transform" type="rotate" from="360 256 256" to="0 256 256" dur="24s" repeatCount="indefinite"/>
+    </circle>
+    <path d="M256 143v-14m0 254v-14M143 256h-14m254 0h-14" stroke="#9ceeff" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="256" cy="126" r="3" fill="#a5f3fc">
+      <animate attributeName="opacity" values=".35;1;.35" dur="1.8s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="386" cy="256" r="3" fill="#c4b5fd">
+      <animate attributeName="opacity" values="1;.3;1" dur="2.4s" repeatCount="indefinite"/>
+    </circle>
+  </svg>
+</svg>
