@@ -8,6 +8,7 @@ import {
   computeCoinMetrics,
   getTopOpportunitySymbols,
 } from './indicatorEngine.js';
+import { sendTradeAlert } from './notifier.js';
 
 const MAX_CANDLES = CANDLE_HISTORY_LIMIT;
 const MAX_TICKS_PER_SYMBOL = 50;
@@ -421,8 +422,10 @@ export class TradingEngine {
 
   async closeTrade(trade, price, reason) {
     const session = await mongoose.startSession();
+    let closedTrade = null;
     try {
       await session.withTransaction(async () => {
+        closedTrade = null;
         const currentTrade = await PaperTrade.findOne({
           _id: trade._id,
           status: 'OPEN',
@@ -457,16 +460,35 @@ export class TradingEngine {
         const breaker = this.breakerReason(wallet);
         if (breaker) wallet.circuitBreakerReason = breaker;
         await wallet.save({ session });
+        closedTrade = {
+          symbol: currentTrade.symbol,
+          side: currentTrade.side,
+          realizedPnl: currentTrade.realizedPnl,
+          exitPrice: price,
+          reason,
+        };
       });
     } finally {
       await session.endSession();
+    }
+    if (closedTrade) {
+      void sendTradeAlert(
+        `Trade closed: ${closedTrade.symbol} ${closedTrade.side}`,
+        `Reason: ${closedTrade.reason}\nExit price: ${closedTrade.exitPrice}\nRealized P&L: ${closedTrade.realizedPnl.toFixed(2)} USDT`,
+        'default',
+        closedTrade.realizedPnl >= 0
+          ? ['chart_with_upwards_trend']
+          : ['chart_with_downwards_trend']
+      );
     }
   }
 
   async takePartialProfit(trade, price) {
     const session = await mongoose.startSession();
+    let partialClose = null;
     try {
       await session.withTransaction(async () => {
+        partialClose = null;
         const currentTrade = await PaperTrade.findOne({
           _id: trade._id,
           status: 'OPEN',
@@ -486,9 +508,21 @@ export class TradingEngine {
         currentTrade.stopLoss = transition.trailingStop;
         await this.applyRealizedPnl(wallet, transition.realizedPnl, session);
         await currentTrade.save({ session });
+        partialClose = {
+          symbol: currentTrade.symbol,
+          side: currentTrade.side,
+          realizedPnl: transition.realizedPnl,
+          price,
+        };
       });
     } finally {
       await session.endSession();
+    }
+    if (partialClose) {
+      void sendTradeAlert(
+        `TP1 reached: ${partialClose.symbol} ${partialClose.side}`,
+        `Price: ${partialClose.price}\nRealized P&L: ${partialClose.realizedPnl.toFixed(2)} USDT; half the position closed.`
+      );
     }
   }
 
@@ -512,8 +546,10 @@ export class TradingEngine {
     const coinMetrics = [...this.metrics.values()];
     const rankedSymbols = getTopOpportunitySymbols(coinMetrics);
     const session = await mongoose.startSession();
+    let openedTrades = [];
     try {
       await session.withTransaction(async () => {
+        openedTrades = [];
         const wallet = await this.rollDailyState(session);
         if (this.breakerReason(wallet)) {
           wallet.circuitBreakerReason = this.breakerReason(wallet);
@@ -557,6 +593,7 @@ export class TradingEngine {
             openedAt: new Date(),
           };
           await PaperTrade.create([trade], { session });
+          openedTrades.push(trade);
           wallet.availableMargin -= margin;
           wallet.inTradeMargin += margin;
           wallet.lastAutoTradeCandles.set(symbol, setup.timestamp);
@@ -565,6 +602,12 @@ export class TradingEngine {
       });
     } finally {
       await session.endSession();
+    }
+    for (const trade of openedTrades) {
+      void sendTradeAlert(
+        `Trade opened: ${trade.symbol} ${trade.side}`,
+        `Entry price: ${trade.entryPrice}\nStop loss: ${trade.stopLoss}\nTP1: ${trade.tp1Price}\nTP2: ${trade.tp2Price}`
+      );
     }
   }
 

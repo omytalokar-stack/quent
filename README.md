@@ -21,6 +21,8 @@ The separate Node.js service in `backend/` runs the Binance 15-minute scanner an
 
 Set `VITE_API_BASE_URL` to the backend's public URL when building the frontend. The dashboard reads cloud wallet, open-position, trade-history, and screener data when the API and MongoDB are ready; local IndexedDB remains the offline fallback. In cloud mode, trade entry, exits, and equity updates are server-managed.
 
+The backend sends paper-trade entry, TP1, and exit alerts through ntfy.sh. Set `NTFY_TOPIC` in `backend/.env` (and in the deployed backend environment) to a private, hard-to-guess topic; the built-in topic is only a fallback.
+
 ## Market-data and paper-trading integrity
 
 - Browser analysis uses 500 validated, finalized candles. The backend scanner retains and scores at most 200 finalized candles per symbol (enough for EMA-200 and shorter-period indicators), drops the in-flight REST candle, and never scores a partial WebSocket candle; an incomplete or invalid response is reported as a data-fetch error.
