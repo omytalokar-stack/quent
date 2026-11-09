@@ -6,6 +6,9 @@ import {
   calculateTp1Transition,
   getReconnectDelay,
   getTradeActionForPrice,
+  hasOpenDirectionalRisk,
+  rankOpportunityCoins,
+  shouldSecureBreakeven,
   unrealizedPnl,
   utcDateKey,
 } from '../src/services/tradingEngine.js';
@@ -60,6 +63,31 @@ test('realized-price valuation and UTC circuit-breaker day key are deterministic
   assert.equal(unrealizedPnl(longTrade, 105), 50);
   assert.equal(unrealizedPnl({ ...longTrade, side: 'SHORT' }, 95), 50);
   assert.equal(utcDateKey(new Date('2026-11-08T00:00:00Z')), '2026-11-08');
+});
+
+test('breakeven secures risk at a 0.50% favorable move for either side', () => {
+  const shortTrade = { ...longTrade, side: 'SHORT', stopLoss: 105 };
+  assert.equal(shouldSecureBreakeven(longTrade, 100.5), true);
+  assert.equal(shouldSecureBreakeven(longTrade, 100.49), false);
+  assert.equal(shouldSecureBreakeven(shortTrade, 99.5), true);
+  assert.equal(shouldSecureBreakeven(shortTrade, 99.51), false);
+  assert.equal(shouldSecureBreakeven({ ...longTrade, stopLoss: 100 }, 101), false);
+  assert.equal(shouldSecureBreakeven({ ...shortTrade, stopLoss: 100 }, 99), false);
+  assert.equal(hasOpenDirectionalRisk(longTrade), true);
+  assert.equal(hasOpenDirectionalRisk({ ...shortTrade, stopLoss: 100 }), false);
+});
+
+test('opportunity ranking prioritizes directional consensus then volume spike', () => {
+  const ranked = rankOpportunityCoins([
+    { symbol: 'ETHUSDT', tradeSetup: { side: 'BUY' }, bullishScore: 8, volumeSpikeRatio: 2 },
+    { symbol: 'SOLUSDT', tradeSetup: { side: 'BUY' }, bullishScore: 9, volumeSpikeRatio: 1.2 },
+    { symbol: 'BTCUSDT', tradeSetup: { side: 'SELL' }, bearishScore: 8, volumeSpikeRatio: 2.5 },
+  ]);
+  assert.deepEqual(ranked.map((coin) => coin.symbol), ['SOLUSDT', 'BTCUSDT', 'ETHUSDT']);
+  assert.deepEqual(rankOpportunityCoins([
+    { symbol: 'ETHUSDT', consensusScore: 8, volumeSpikeRatio: 2 },
+    { symbol: 'BTCUSDT', consensusScore: 8, volumeSpikeRatio: 3 },
+  ]).map((coin) => coin.symbol), ['BTCUSDT', 'ETHUSDT']);
 });
 
 test('TP1 closes half the size, releases half the margin, and trails beyond breakeven', () => {
@@ -126,4 +154,5 @@ test('trade schema has both the requested compound index and unique open-positio
     options.unique === true &&
     options.partialFilterExpression?.status === 'OPEN'
   ));
+  assert.equal(PaperTrade.schema.path('breakevenSecured').defaultValue, false);
 });

@@ -13,6 +13,7 @@ const paperTradeSchema = new mongoose.Schema({
   tp1Price: { type: Number, required: true, min: 0 },
   tp2Price: { type: Number, required: true, min: 0 },
   tp1Filled: { type: Boolean, default: false },
+  breakevenSecured: { type: Boolean, default: false },
   realizedPnl: { type: Number, default: 0 },
   closeReason: { type: String, default: '' },
   exitPrice: { type: Number, default: null },

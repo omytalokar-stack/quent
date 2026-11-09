@@ -49,6 +49,35 @@ export function getTradeActionForPrice(trade, price) {
   return null;
 }
 
+export function hasOpenDirectionalRisk(trade) {
+  return trade.side === 'LONG'
+    ? trade.stopLoss < trade.entryPrice
+    : trade.stopLoss > trade.entryPrice;
+}
+
+export function shouldSecureBreakeven(trade, price) {
+  if (!hasOpenDirectionalRisk(trade)) return false;
+  return trade.side === 'LONG'
+    ? price >= trade.entryPrice * 1.005
+    : price <= trade.entryPrice * 0.995;
+}
+
+function getConsensusScore(coin) {
+  if (Number.isFinite(coin.consensusScore)) return coin.consensusScore;
+  const directionalScore = coin.tradeSetup?.side === 'BUY'
+    ? coin.bullishScore
+    : coin.bearishScore;
+  return Number.isFinite(directionalScore) ? directionalScore : 0;
+}
+
+export function rankOpportunityCoins(coins) {
+  return coins.slice().sort((left, right) =>
+    getConsensusScore(right) - getConsensusScore(left) ||
+    (right.volumeSpikeRatio ?? 0) - (left.volumeSpikeRatio ?? 0) ||
+    left.symbol.localeCompare(right.symbol)
+  );
+}
+
 export function calculateTp1Transition(trade, price) {
   const closedQuantity = trade.remainingQuantity / 2;
   const releasedMargin = trade.margin * (closedQuantity / trade.remainingQuantity);
@@ -529,6 +558,27 @@ export class TradingEngine {
   async processPriceTick(symbol, price) {
     const openTrades = await PaperTrade.find({ symbol, status: 'OPEN' });
     for (const trade of openTrades) {
+      if (shouldSecureBreakeven(trade, price)) {
+        const securedTrade = await PaperTrade.findOneAndUpdate({
+          _id: trade._id,
+          status: 'OPEN',
+          stopLoss: trade.side === 'LONG'
+            ? { $lt: trade.entryPrice }
+            : { $gt: trade.entryPrice },
+        }, {
+          $set: {
+            stopLoss: trade.entryPrice,
+            breakevenSecured: true,
+          },
+        }, { new: true });
+        if (securedTrade) {
+          void sendTradeAlert(
+            `🛡️ BREAKEVEN SECURED: ${securedTrade.symbol}`,
+            `Position moved to entry ($${securedTrade.entryPrice}). Risk is now $0.`
+          );
+        }
+      }
+
       if (getTradeActionForPrice(trade, price) === 'TP1') {
         await this.takePartialProfit(trade, price);
       }
@@ -544,7 +594,10 @@ export class TradingEngine {
 
   async scanAndOpenTrades() {
     const coinMetrics = [...this.metrics.values()];
-    const rankedSymbols = getTopOpportunitySymbols(coinMetrics);
+    const opportunitySymbols = getTopOpportunitySymbols(coinMetrics, coinMetrics.length);
+    const rankedCoins = rankOpportunityCoins(
+      coinMetrics.filter((coin) => opportunitySymbols.has(coin.symbol))
+    );
     const session = await mongoose.startSession();
     let openedTrades = [];
     try {
@@ -556,9 +609,15 @@ export class TradingEngine {
           await wallet.save({ session });
           return;
         }
-        if (rankedSymbols.size === 0) return;
-        for (const symbol of rankedSymbols) {
-          const coin = this.metrics.get(symbol);
+        if (rankedCoins.length === 0) return;
+        const activeTrades = await PaperTrade.find({ status: 'OPEN' }).session(session);
+        const activeSymbols = new Set(activeTrades.map((trade) => trade.symbol));
+        const openRiskCount = { LONG: 0, SHORT: 0 };
+        for (const trade of activeTrades) {
+          if (hasOpenDirectionalRisk(trade)) openRiskCount[trade.side] += 1;
+        }
+        for (const coin of rankedCoins) {
+          const { symbol } = coin;
           const setup = coin?.tradeSetup;
           const priceQuote = this.prices.get(symbol);
           if (
@@ -570,12 +629,12 @@ export class TradingEngine {
           ) continue;
           const lastAutoTradeTime = wallet.lastAutoTradeCandles.get(symbol) ?? 0;
           if (setup.timestamp <= lastAutoTradeTime) continue;
-          const alreadyOpen = await PaperTrade.exists({ symbol, status: 'OPEN' }).session(session);
-          if (alreadyOpen) continue;
+          if (activeSymbols.has(symbol)) continue;
+          const side = setup.side === 'BUY' ? 'LONG' : 'SHORT';
+          if (openRiskCount[side] >= 2) continue;
           const margin = Math.min(wallet.availableMargin * 0.25, MAX_MARGIN_PER_TRADE);
           if (margin <= 0) break;
 
-          const side = setup.side === 'BUY' ? 'LONG' : 'SHORT';
           const entryPrice = priceQuote.price;
           const atr = setup.atrValue;
           const trade = {
@@ -594,6 +653,8 @@ export class TradingEngine {
           };
           await PaperTrade.create([trade], { session });
           openedTrades.push(trade);
+          activeSymbols.add(symbol);
+          openRiskCount[side] += 1;
           wallet.availableMargin -= margin;
           wallet.inTradeMargin += margin;
           wallet.lastAutoTradeCandles.set(symbol, setup.timestamp);
