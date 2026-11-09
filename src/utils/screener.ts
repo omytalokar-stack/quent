@@ -15,6 +15,8 @@ export const SCREENER_COINS = [
   'NEARUSDT',
 ];
 
+export const MIN_VALID_CLOSED_CANDLES = 200;
+
 /**
  * Pure evaluation function for Opportunity criteria
  * Confluence: >= 7/10 with 200 EMA + ADX > 22 + Volume Spike (> 1.25x 20-SMA)
@@ -67,7 +69,7 @@ export function getTopOpportunitySymbols(coins: ScreenerCoinData[], limit = 2): 
         coin.isOpportunity &&
         coin.tradeSetup !== null &&
         coin.tradeSetup !== undefined &&
-        coin.candleCount === 500 &&
+        (coin.candleCount ?? 0) >= MIN_VALID_CLOSED_CANDLES &&
         !coin.error &&
         Number.isFinite(coin.volumeSpikeRatio) &&
         (coin.volumeSpikeRatio ?? 0) >= 1.2 &&

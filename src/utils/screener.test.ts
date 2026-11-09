@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateOpportunity, SCREENER_COINS } from './screener.ts';
+import {
+  evaluateOpportunity,
+  getTopOpportunitySymbols,
+  SCREENER_COINS,
+} from './screener.ts';
 
 test('evaluateOpportunity accurately triggers LONG opportunity', () => {
   const result = evaluateOpportunity({
@@ -124,4 +128,51 @@ test('SCREENER_COINS contains exactly 10 top coins', () => {
   assert.ok(SCREENER_COINS.includes('AVAXUSDT'));
   assert.ok(SCREENER_COINS.includes('SUIUSDT'));
   assert.ok(SCREENER_COINS.includes('NEARUSDT'));
+});
+
+test('top opportunity ranking accepts backend 200-candle data and rejects insufficient history', () => {
+  const makeCoin = (symbol: string, candleCount: number) => ({
+    symbol,
+    shortName: symbol.replace('USDT', ''),
+    price: 100,
+    change24h: 1,
+    rsi: 55,
+    ema200: 95,
+    isAbove200EMA: true,
+    adx: 25,
+    macdHist: 1,
+    supertrendTrend: 'bull' as const,
+    volume: 100,
+    avgVolume20: 80,
+    volumeSpikeRatio: 1.3,
+    hasVolumeSpike: true,
+    bullishScore: 8,
+    bearishScore: 1,
+    signal: 'CONFIRMED_BUY' as const,
+    isOpportunity: true,
+    opportunityType: 'LONG' as const,
+    tradeSetup: {
+      side: 'BUY' as const,
+      entryPrice: 100,
+      stopLoss: 95,
+      takeProfit1: 105,
+      takeProfit2: 110,
+      riskReward1: 1,
+      riskReward2: 2,
+      atrValue: 3.33,
+      timestamp: 1,
+      signalTimestamp: 1,
+    },
+    lastUpdated: Date.now(),
+    candleCount,
+  });
+
+  assert.deepEqual(
+    [...getTopOpportunitySymbols([
+      makeCoin('BTCUSDT', 200),
+      makeCoin('ETHUSDT', 199),
+      makeCoin('SOLUSDT', 500),
+    ])],
+    ['BTCUSDT', 'SOLUSDT']
+  );
 });

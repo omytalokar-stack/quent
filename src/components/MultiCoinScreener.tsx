@@ -18,7 +18,11 @@ import {
   Zap,
 } from 'lucide-react';
 
-import { getRemainingCandleSeconds, getTopOpportunitySymbols } from '../utils/screener.ts';
+import {
+  getRemainingCandleSeconds,
+  getTopOpportunitySymbols,
+  MIN_VALID_CLOSED_CANDLES,
+} from '../utils/screener.ts';
 
 interface MultiCoinScreenerProps {
   coins: ScreenerCoinData[];
@@ -181,7 +185,11 @@ export const MultiCoinScreener: React.FC<MultiCoinScreenerProps> = ({
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-2.5">
               {filteredCoins.map((coin) => {
-                if (coin.error || coin.candleCount !== 500 || coin.price <= 0) {
+                if (
+                  coin.error ||
+                  (coin.candleCount ?? 0) < MIN_VALID_CLOSED_CANDLES ||
+                  coin.price <= 0
+                ) {
                   return (
                     <div
                       key={coin.symbol}
@@ -194,7 +202,7 @@ export const MultiCoinScreener: React.FC<MultiCoinScreenerProps> = ({
                         </span>
                       </div>
                       <p className="text-[10px] text-rose-300 font-mono my-2 leading-tight">
-                        {coin.error || '0 valid Binance candles fetched'}
+                        {coin.error || `${coin.candleCount ?? 0} valid Binance candles fetched`}
                       </p>
                       <div className="text-[9px] text-slate-500 font-mono border-t border-rose-950/80 pt-1">
                         Analysis Halted &bull; No Mock Data
