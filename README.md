@@ -23,7 +23,7 @@ Set `VITE_API_BASE_URL` to the backend's public URL when building the frontend. 
 
 ## Market-data and paper-trading integrity
 
-- Analysis and screener scoring use 500 validated, finalized candles. The backend drops the in-flight REST candle and never scores a partial WebSocket candle; an incomplete or invalid response is reported as a data-fetch error.
+- Browser analysis uses 500 validated, finalized candles. The backend scanner retains and scores at most 200 finalized candles per symbol (enough for EMA-200 and shorter-period indicators), drops the in-flight REST candle, and never scores a partial WebSocket candle; an incomplete or invalid response is reported as a data-fetch error.
 - Wilder RSI, EMA, MACD, and Supertrend calculation details are logged in the browser console for each analyzed symbol.
 - The cloud backend monitors Binance WebSocket trade ticks and manages positions independently of the browser. It opens at most one position per symbol, allocating 25% of available margin up to $2,500. Long P&L is `(tick price - entry price) × units`; short P&L is `(entry price - tick price) × units`.
 - Paper-trading cash is virtual and has no relationship to an exchange account. In cloud mode, trade entry, exits, balance, and risk state are persisted in MongoDB; the dashboard is read-only for execution. If the backend is unavailable, the browser falls back to its separate local IndexedDB account, which does not provide 24/7 execution.

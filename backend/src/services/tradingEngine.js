@@ -4,11 +4,13 @@ import PaperTrade from '../models/PaperTrade.js';
 import VirtualWallet from '../models/VirtualWallet.js';
 import {
   SCREENER_COINS,
+  CANDLE_HISTORY_LIMIT,
   computeCoinMetrics,
   getTopOpportunitySymbols,
 } from './indicatorEngine.js';
 
-const MAX_CANDLES = 500;
+const MAX_CANDLES = CANDLE_HISTORY_LIMIT;
+const MAX_TICKS_PER_SYMBOL = 50;
 const INITIAL_BALANCE = 10_000;
 const MAX_MARGIN_PER_TRADE = 2_500;
 const WS_BASE = 'wss://stream.binance.com:9443/stream?streams=';
@@ -328,12 +330,42 @@ export class TradingEngine {
   }
 
   enqueueSymbol(symbol, operation) {
-    const previous = this.symbolQueues.get(symbol) ?? Promise.resolve();
-    const next = previous.catch(() => {}).then(operation);
-    this.symbolQueues.set(symbol, next);
-    return next.finally(() => {
-      if (this.symbolQueues.get(symbol) === next) this.symbolQueues.delete(symbol);
+    let queue = this.symbolQueues.get(symbol);
+    if (!queue) {
+      queue = { pending: [], processing: false, overloaded: false };
+      this.symbolQueues.set(symbol, queue);
+    }
+
+    return new Promise((resolve, reject) => {
+      if (queue.pending.length + Number(queue.processing) >= MAX_TICKS_PER_SYMBOL) {
+        const dropped = queue.pending.shift();
+        dropped.resolve();
+        if (!queue.overloaded) {
+          console.warn(`[TradingEngine] Dropping stale queued ticks for ${symbol}; processing is behind`);
+          queue.overloaded = true;
+        }
+      }
+      queue.pending.push({ operation, resolve, reject });
+      if (!queue.processing) void this.drainSymbolQueue(symbol, queue);
     });
+  }
+
+  async drainSymbolQueue(symbol, queue) {
+    queue.processing = true;
+    try {
+      while (queue.pending.length > 0) {
+        const item = queue.pending.shift();
+        if (queue.pending.length + 1 < MAX_TICKS_PER_SYMBOL) queue.overloaded = false;
+        try {
+          item.resolve(await item.operation());
+        } catch (error) {
+          item.reject(error);
+        }
+      }
+    } finally {
+      queue.processing = false;
+      if (this.symbolQueues.get(symbol) === queue) this.symbolQueues.delete(symbol);
+    }
   }
 
   async ensureWallet(session) {

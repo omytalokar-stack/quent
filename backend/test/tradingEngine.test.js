@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import PaperTrade from '../src/models/PaperTrade.js';
 import {
+  TradingEngine,
   calculateTp1Transition,
   getReconnectDelay,
   getTradeActionForPrice,
@@ -93,6 +94,26 @@ test('Binance reconnect delay grows exponentially and caps at one minute', () =>
   assert.deepEqual([0, 1, 2, 6, 8].map(getReconnectDelay), [
     1_000, 2_000, 4_000, 60_000, 60_000,
   ]);
+});
+
+test('per-symbol tick queue retains at most the latest 50 operations including the active tick', async () => {
+  const engine = new TradingEngine();
+  let releaseFirst;
+  const firstOperation = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const executed = [];
+  const first = engine.enqueueSymbol('BTCUSDT', () => firstOperation);
+  const queued = Array.from({ length: 60 }, (_, index) =>
+    engine.enqueueSymbol('BTCUSDT', () => executed.push(index))
+  );
+
+  assert.equal(engine.symbolQueues.get('BTCUSDT').pending.length, 49);
+  releaseFirst();
+  await Promise.all([first, ...queued]);
+  assert.equal(executed.length, 49);
+  assert.deepEqual(executed, Array.from({ length: 49 }, (_, index) => index + 11));
+  assert.equal(engine.symbolQueues.has('BTCUSDT'), false);
 });
 
 test('trade schema has both the requested compound index and unique open-position guard', () => {

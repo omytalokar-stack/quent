@@ -1,3 +1,5 @@
+export const CANDLE_HISTORY_LIMIT = 200;
+
 function calcSMA(values, period) {
   const result = new Array(values.length).fill(NaN);
   if (values.length < period) return result;
@@ -381,7 +383,7 @@ function evaluateConsensus(candles, indicators) {
     tradeSetup: null,
     lastCalculatedCandleTime: 0
   };
-  if (!candles || candles.length < 500 || candles.some((candle) => candle.isClosed === false)) {
+  if (!candles || candles.length < CANDLE_HISTORY_LIMIT || candles.some((candle) => candle.isClosed === false)) {
     return defaultResult;
   }
   const lastIdx = candles.length - 1;
@@ -711,7 +713,7 @@ function evaluateOpportunity(data) {
 function getTopOpportunitySymbols(coins, limit = 2) {
   return new Set(
     coins.filter(
-      (coin) => coin.isOpportunity && coin.tradeSetup !== null && coin.tradeSetup !== void 0 && coin.candleCount === 500 && !coin.error && Number.isFinite(coin.volumeSpikeRatio) && (coin.volumeSpikeRatio ?? 0) >= 1.2 && Number.isFinite(coin.adx) && coin.adx > 22 && (coin.opportunityType === "SHORT" ? coin.rsi >= 35 && coin.rsi <= 55 : coin.opportunityType === "LONG" && coin.rsi >= 45 && coin.rsi <= 65)
+      (coin) => coin.isOpportunity && coin.tradeSetup !== null && coin.tradeSetup !== void 0 && coin.candleCount === CANDLE_HISTORY_LIMIT && !coin.error && Number.isFinite(coin.volumeSpikeRatio) && (coin.volumeSpikeRatio ?? 0) >= 1.2 && Number.isFinite(coin.adx) && coin.adx > 22 && (coin.opportunityType === "SHORT" ? coin.rsi >= 35 && coin.rsi <= 55 : coin.opportunityType === "LONG" && coin.rsi >= 45 && coin.rsi <= 65)
     ).sort((left, right) => {
       const probabilityScore = (coin) => (coin.volumeSpikeRatio ?? 0) * coin.adx;
       return probabilityScore(right) - probabilityScore(left) || left.symbol.localeCompare(right.symbol);
@@ -720,7 +722,7 @@ function getTopOpportunitySymbols(coins, limit = 2) {
 }
 function computeCoinMetrics(symbol, candles) {
   const shortName = symbol.replace("USDT", "");
-  if (!candles || candles.length !== 500 || candles.some((candle) => candle.isClosed !== true)) {
+  if (!candles || candles.length !== CANDLE_HISTORY_LIMIT || candles.some((candle) => candle.isClosed !== true)) {
     return {
       symbol,
       shortName,
@@ -741,7 +743,7 @@ function computeCoinMetrics(symbol, candles) {
       isOpportunity: false,
       tradeSetup: null,
       lastUpdated: Date.now(),
-      error: `DATA FETCH ERROR: ${candles?.length ?? 0}/500 valid closed Binance candles available`,
+      error: `DATA FETCH ERROR: ${candles?.length ?? 0}/${CANDLE_HISTORY_LIMIT} valid closed Binance candles available`,
       candleCount: candles?.length || 0
     };
   }
