@@ -243,6 +243,7 @@ export default function App() {
   useEffect(() => {
     let active = true;
     const syncBackend = async () => {
+      if (!active || document.hidden) return;
       try {
         const snapshot = await fetchBackendDashboard();
         if (!active) return;
@@ -279,11 +280,33 @@ export default function App() {
       }
     };
 
-    void syncBackend();
-    const syncTimer = window.setInterval(() => void syncBackend(), 5000);
+    let syncTimer: number | undefined;
+    const startPolling = () => {
+      if (syncTimer !== undefined) {
+        window.clearInterval(syncTimer);
+        syncTimer = undefined;
+      }
+      if (!active || document.hidden) return;
+      void syncBackend();
+      syncTimer = window.setInterval(() => void syncBackend(), 15_000);
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        if (syncTimer !== undefined) {
+          window.clearInterval(syncTimer);
+          syncTimer = undefined;
+        }
+        return;
+      }
+      startPolling();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    startPolling();
     return () => {
       active = false;
-      window.clearInterval(syncTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (syncTimer !== undefined) window.clearInterval(syncTimer);
     };
   }, []);
 

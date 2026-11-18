@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -16,6 +17,7 @@ const allowedOrigins = process.env.CORS_ORIGIN
 
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: '32kb' }));
+app.use(compression());
 
 function requireDatabase(_request, response, next) {
   if (mongoose.connection.readyState !== 1) {
